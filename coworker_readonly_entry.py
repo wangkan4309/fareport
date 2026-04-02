@@ -4,12 +4,16 @@
 用途：
 1) 验证只读连接
 2) 查看收件箱总量
-3) 搜索最近 N 天邮件
+3) 搜索最近 N 天、邮件头含指定关键词（默认 911600210）
 4) 打印邮件摘要 + 正文预览（不改邮件状态）
 """
 
 from readonly_mail_client import ReadonlyFareportMailClient
 from secure_config import get_config
+
+# 在邮件头（主题/发件人/日期）中匹配，例如产品编号出现在主题里
+FILTER_KEYWORDS = ["911600210"]
+SEARCH_DAYS = 2
 
 
 def main() -> None:
@@ -32,9 +36,12 @@ def main() -> None:
     print("✅ 只读连接成功")
     print(f"📧 收件箱总邮件数：{client.get_mail_count()}")
 
-    # 读取最近 7 天所有邮件（不做关键词过滤）
-    mail_ids = client.search_emails(days=1, unread=False, subject_keywords=[])
-    print(f"🔎 最近 1 天邮件：{len(mail_ids)} 封")
+    mail_ids = client.search_emails(
+        days=SEARCH_DAYS,
+        unread=False,
+        subject_keywords=FILTER_KEYWORDS,
+    )
+    print(f"🔎 最近 {SEARCH_DAYS} 天、含关键词 {FILTER_KEYWORDS}：{len(mail_ids)} 封")
 
     show_count = min(20, len(mail_ids))
     if show_count > 0:

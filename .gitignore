@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+dist_coworker/
+
+# 凭据与本地敏感文件（勿提交）
+secure_config.py
+secure_config.pyd
+*密码*.txt
+*账户记录*.txt
+
+# 含内网数据库账号的脚本（请本地保留或改用环境变量）
+get_client_wz_ro.py

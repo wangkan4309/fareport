@@ -80,8 +80,14 @@ class ReadonlyFareportMailClient:
         unread: bool = False,
         sender_keywords: Optional[List[str]] = None,
         subject_keywords: Optional[List[str]] = None,
+        max_matches: Optional[int] = None,
     ) -> List[str]:
-        """搜索邮件并做发件人/主题关键词过滤。"""
+        """搜索邮件并做发件人/主题关键词过滤。
+
+        性能说明：日期范围内每一封邮件会各执行一次 IMAP FETCH 头，邮件很多时很慢。
+        若只需「时间最早的一封命中」（与旧逻辑里 ids[0] 一致），请传 max_matches=1，
+        会在首次命中后立即停止，避免扫完全部。
+        """
         if not self._mailbox:
             return []
 
@@ -99,14 +105,45 @@ class ReadonlyFareportMailClient:
         if status != "OK":
             return []
 
+        id_list = messages[0].split()
+        # 若关键词为纯 ASCII，尝试服务端 TEXT 缩小 UID 集合，减少逐封 FETCH（无效时仍用全量 id_list）
+        if subject_keywords and len(subject_keywords) == 1 and not sender_keywords:
+            kw = subject_keywords[0]
+            if kw.isascii():
+                try:
+                    crit_text = f'(SINCE "{since_date.strftime("%d-%b-%Y")}" TEXT "{kw}")'
+                    st2, msg2 = self._mailbox.search(None, crit_text)
+                    if st2 == "OK" and msg2[0]:
+                        narrowed = msg2[0].split()
+                        if narrowed:
+                            id_list = narrowed
+                except Exception:
+                    pass
+
+        try:
+            id_list = sorted(id_list, key=lambda b: int(b.decode()))
+        except Exception:
+            pass
+
         matched: List[str] = []
-        for raw_id in messages[0].split():
+        for raw_id in id_list:
             mail_id = raw_id.decode()
             status, msg_data = self._mailbox.fetch(mail_id, "(BODY[HEADER.FIELDS (SUBJECT FROM DATE)])")
             if status != "OK":
                 continue
 
-            header_text = msg_data[0][1].decode("utf-8", errors="ignore").lower()
+            # 必须先解码 MIME 主题/发件人；否则中文主题常为 =?UTF-8?B?...?=
+            # 关键词（如 911600210）可能只出现在解码后的正文里，原始头里搜不到
+            raw_header = msg_data[0][1]
+            try:
+                msg = email.message_from_bytes(raw_header)
+                subject_decoded = _decode_mime_header(msg.get("Subject", "") or "")
+                from_decoded = _decode_mime_header(msg.get("From", "") or "")
+                date_raw = msg.get("Date", "") or ""
+                header_text = f"{subject_decoded} {from_decoded} {date_raw}".lower()
+            except Exception:
+                header_text = raw_header.decode("utf-8", errors="ignore").lower()
+
             sender_ok = True
             subject_ok = True
 
@@ -117,6 +154,8 @@ class ReadonlyFareportMailClient:
 
             if sender_ok and subject_ok:
                 matched.append(mail_id)
+                if max_matches is not None and len(matched) >= max_matches:
+                    break
 
         return matched
 
@@ -136,6 +175,18 @@ class ReadonlyFareportMailClient:
                 "from": _decode_mime_header(email_message.get("From", "")),
                 "date": email_message.get("Date", ""),
             }
+        except Exception:
+            return None
+
+    def fetch_rfc822(self, mail_id: str) -> Optional[bytes]:
+        """返回整封邮件原始字节（含附件），用于解析 xlsx 等。"""
+        if not self._mailbox:
+            return None
+        try:
+            status, msg_data = self._mailbox.fetch(mail_id, "(RFC822)")
+            if status != "OK" or not msg_data or not msg_data[0]:
+                return None
+            return msg_data[0][1]
         except Exception:
             return None
 
@@ -186,3 +237,7 @@ def _decode_mime_header(value: str) -> str:
         else:
             output += text
     return output
+
+
+if __name__ == "__main__":
+    print("此文件是库模块，无独立运行逻辑。请执行：python coworker_readonly_entry.py")
