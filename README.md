@@ -9,4 +9,4 @@
 ## 说明
 
 - 协作脚本：`coworker_readonly_entry.py`、`readonly_mail_client.py`
-- 邮箱凭据请使用本地 `secure_config.pyd` / `secure_config.py`，勿提交到仓库
+- 邮箱凭据请使用本地 `secure_config.pyd`
